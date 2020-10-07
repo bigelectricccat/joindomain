@@ -1,0 +1,91 @@
+#!/bin/sh
+
+# Crappy little script to automate and provide a UI for joining an Active
+# Directory domain with sssd, realm and smbcli. Probably fragile and
+# won't work for anything but Ubuntu right now.
+# Tender as quail. Tasty as pheasant.
+
+# Function to get the domain name if not argv(0).
+
+getdomain()
+{
+	DOMAIN=`whiptail --title "Domain" --inputbox "Enter the DNS name of the
+Active Directory domain (i.e.: example.com):" 10 40 3>&1 1>&2 2>&3`
+	if [ $? != 0 ];
+	then
+		exit 99
+	fi
+}
+
+# Function to get the domain admin for bind.
+getuser()
+{
+	ADUSER=`whiptail --title "Username" --inputbox "Enter a domain administrator username:" 10 40 3>&1 1>&2 2>&3`
+}
+
+# Function to get the admin's password. Probably not very secure since
+# it keeps the password in RAM. Don't allow remote logins before 
+# this step to keep people from crawling around in your memory heap.
+
+getpass()
+{
+	ADPASS=`whiptail --title "Password" --passwordbox "Password for "$ADUSER":" 10 40 3>&1 1>&2 2>&3`
+}
+
+DOMAIN=$1
+
+apt install -y sssd-ad sssd-tools samba-common-bin realmd adcli
+if [ $? != 0 ]
+then
+        exit 98
+fi
+
+while [ -z $DOMAIN ];
+do
+	getdomain
+done
+
+ADDOMAIN=`echo $DOMAIN | tr [a-z] [A-Z]`
+realm -v discover $ADDOMAIN >/tmp/whiptail.tmp 2>&1
+if [ $? != 0 ]
+then
+	exit 97
+fi
+whiptail  --title "Domain Status" --textbox --scrolltext /tmp/whiptail.tmp 20 70
+
+whiptail --title "Domain Join" --yesno "Join the domain "$ADDOMAIN"?" 10 40 3>&1 1>&2 2>&3
+if [ $? != 0 ]
+then
+        exit 99
+fi
+
+getuser
+if [ $? != 0 ]
+then
+	exit 96
+fi
+while [ -z $ADUSER ]
+do
+	getuser
+done
+
+getpass
+if [ $? != 0 ]
+then
+        exit 95
+fi
+while [ -z $ADPASS ]
+do
+        getpass
+done
+
+echo $ADPASS | realm join $ADDOMAIN -U $ADUSER
+if [ $? = 0 ];
+then
+	pam-auth-update --enable mkhomedir
+	whiptail --title "Domain Status" --msgbox "Welcome to the "$ADDOMAIN" domain." 10 40
+else
+	whiptail --title "Domain Status" --msgbox "Something went wrong. Please check your configuration and try again." 10 40
+	exit 94
+fi
+exit 0
